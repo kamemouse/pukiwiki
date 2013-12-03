@@ -1,0 +1,245 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Buildnig PukiWiki Server.",
+
+  "Parameters" : {
+    "KeyName": {
+      "Description": "Name of an existing EC2 KeyPair to enable SSH access to the instances",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "64",
+      "AllowedPattern": "[-_ a-zA-Z0-9]*",
+      "ConstraintDescription": "can contain only alphanumeric characters, spaces, dashes and underscores."
+    },
+    
+    "InstanceType" : {
+      "Description" : "EC2 instance type",
+      "Type" : "String",
+      "Default" : "t1.micro",
+      "AllowedValues" : [ "t1.micro","m1.small","m1.medium","m1.large","m1.xlarge","m2.xlarge","m2.2xlarge","m2.4xlarge","m3.xlarge","m3.2xlarge","c1.medium","c1.xlarge","cc1.4xlarge","cc2.8xlarge","cg1.4xlarge"],
+      "ConstraintDescription" : "must be a valid EC2 instance type."
+    }
+
+  },
+
+
+  "Mappings" : {
+
+    "RegionMap" : {
+      "us-east-1" :      { "AMI" : "ami-83e4bcea" },
+      "us-west-1" :      { "AMI" : "ami-981f29dd" },
+      "us-west-2" :      { "AMI" : "ami-be1c848e" },
+      "eu-west-1" :      { "AMI" : "ami-c7ec0eb0" },
+      "ap-southeast-1" : { "AMI" : "ami-4296c310" },
+      "ap-southeast-2" : { "AMI" : "ami-717be74b" },
+      "ap-northeast-1" : { "AMI" : "ami-b1fe9bb0" },
+      "sa-east-1" :      { "AMI" : "ami-8779df9a" }
+    },
+    "AZ": {
+      "us-east-1":      { "primary": "us-east-1b",      "secondary": "us-east-1c" },
+      "us-west-2":      { "primary": "us-west-2a",      "secondary": "us-west-2b" },
+      "us-west-1":      { "primary": "us-west-1a",      "secondary": "us-west-1b" },
+      "eu-west-1":      { "primary": "eu-west-1a",      "secondary": "eu-west-1b" },
+      "ap-southeast-1": { "primary": "ap-southeast-1a", "secondary": "ap-southeast-1b" },
+      "ap-southeast-2": { "primary": "ap-southeast-2a", "secondary": "ap-southeast-2b" },
+      "ap-northeast-1": { "primary": "ap-northeast-1a", "secondary": "ap-northeast-1c" },
+      "sa-east-1":      { "primary": "sa-east-1a",      "secondary": "sa-east-1b" }
+    },
+    "StackConfig" : {
+      "VPC"               : { "CIDR" : "10.0.0.0/16" },
+      "FrontendSubnet1"   : { "CIDR" : "10.0.0.0/24" },
+      "FrontendSubnet2"   : { "CIDR" : "10.0.1.0/24" },
+      "ApplicationSubnet1": { "CIDR" : "10.0.100.0/24" },
+      "ApplicationSubnet2": { "CIDR" : "10.0.101.0/24" },
+      "DatastoreSubnet1"  : { "CIDR" : "10.0.200.0/24" },
+      "DatastoreSubnet2"  : { "CIDR" : "10.0.201.0/24" },
+      
+      "NATServer"         : { "InstanceType" : "t1.micro" },
+      "BastionServer"     : { "InstanceType" : "t1.micro" },
+      "ApplicationServer" : { "InstanceType" : "t1.micro" },
+      "DBServer"          : { "InstanceType" : "db.t1.micro", "AllocatedStorage" : "5", "DBName" : "mydb" }
+      
+    }
+  },
+  
+  
+  "Resources" : {
+    "VPC" : {
+      "Type" : "AWS::EC2::VPC",
+      "Properties" : {
+        "CidrBlock" : { "Fn::FindInMap" : [ "StackConfig", "VPC", "CIDR" ]},
+        "InstanceTenancy" : "default",
+        "Tags" : [
+          {"Key" : "Application", "Value" : { "Ref" : "AWS::StackId" } },
+          {"Key" : "Network", "Value" : "Public" }
+        ]
+      }
+    },
+    "InternetGateway" : {
+      "Type" : "AWS::EC2::InternetGateway",
+      "Properties" : {
+        "Tags" : [
+          {"Key" : "Application", "Value" : { "Ref" : "AWS::StackId" } },
+          {"Key" : "Network", "Value" : "Public" }
+        ]
+      }
+    },
+    "AttachGateway" : {
+      "Type" : "AWS::EC2::VPCGatewayAttachment",
+      "Properties" : {
+        "VpcId" : {"Ref" : "VPC"},
+        "InternetGatewayId" : {"Ref" : "InternetGateway"}
+      }
+    },
+    
+    "PublicRouteTable" : {
+      "Type" : "AWS::EC2::RouteTable",
+      "DependsOn" : "AttachGateway",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC" },
+        "Tags" : [
+          {"Key" : "Application", "Value" : { "Ref" : "AWS::StackId"} },
+          {"Key" : "Network", "Value" : "Public" }
+        ]
+      }
+    },
+    "PublicRoute" : {
+      "Type" : "AWS::EC2::Route",
+      "DependsOn" : "AttachGateway",
+      "Properties" : {
+        "RouteTableId" : { "Ref" : "PublicRouteTable" },
+        "DestinationCidrBlock" : "0.0.0.0/0",
+        "GatewayId" : { "Ref" : "InternetGateway" }
+      }
+    },
+    "FrontendSubnet1": {
+      "Type": "AWS::EC2::Subnet",
+      "DependsOn" : "AttachGateway",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "AvailabilityZone": { "Fn::FindInMap": [ "AZ", { "Ref": "AWS::Region" }, "primary" ]},
+        "CidrBlock": { "Fn::FindInMap" : [ "StackConfig", "FrontendSubnet1", "CIDR" ]},
+        "Tags" : [
+          {"Key" : "Application", "Value" : { "Ref" : "AWS::StackId"} },
+          {"Key" : "Network", "Value" : "Public" }
+        ]
+      }
+    },
+    "FrontendSubnet1RouteTableAssociation" : {
+      "Type" : "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties" : {
+        "SubnetId" : { "Ref" : "FrontendSubnet1" },
+        "RouteTableId" : { "Ref" : "PublicRouteTable" }
+      }
+    },
+    
+    "PukiWikiEC2Server" : {
+      "Type" : "AWS::EC2::Instance",
+      "Properties" : {
+        "InstanceType" : { "Ref" : "InstanceType" },
+        "KeyName" : { "Ref" : "KeyName" },
+        "SubnetId" : { "Ref" : "FrontendSubnet1" },
+        "ImageId" : { "Fn::FindInMap" : [ "RegionMap", { "Ref" : "AWS::Region" }, "AMI" ]},
+        "SecurityGroupIds" : [
+          { "Ref" :  "PukiWikiSSHSecurityGroup" },
+          { "Ref" :  "PukiWikiWebSecurityGroup" }
+        ],
+        "Tags" : [
+          { "Key" : "Name", "Value" : "PukiWikiEC2Server" },
+          { "Key" : "Network", "Value" : "Public" },
+          { "Key" : "Application", "Value" : { "Ref" : "AWS::StackId" } }
+        ],
+        
+        "UserData" : { "Fn::Base64" : { "Fn::Join" : ["",[
+          "#! /bin/bash -v\n",
+          "yum update -y\n",
+          "yum install -y httpd\n",
+          "chkconfig httpd on\n",
+          "yum -y install php php-mbstring php-mysql\n",
+          "cd /var/www/html\n",
+          "wget https://s3-ap-northeast-1.amazonaws.com/cfn-archive/pukiwiki-1.4.7_notb_utf8.tar.gz\n",
+          "tar xvf pukiwiki-1.4.7_notb_utf8.tar.gz\n",
+          "mv pukiwiki-1.4.7_notb_utf8 pukiwiki\n",
+          "chown nobody.nobody pukiwiki\n",
+          "service httpd restart\n",
+          
+          "# Helper function\n",
+          "function error_exit\n",
+          "{\n",
+          "  /opt/aws/bin/cfn-signal -e 1 -r \"$1\" '", { "Ref" : "PukiWikiServerWaitHandle" }, "'\n",
+          "  exit 1\n",
+          "}\n",
+
+          "# All is well so signal success\n",
+          "/opt/aws/bin/cfn-signal -e $? -r \"EC2Server setup complete\" '", { "Ref" : "PukiWikiServerWaitHandle" }, "'\n"
+
+        ]]}}
+
+        
+      }
+    },
+    "PukiWikiEC2ServerEIP" : {
+      "Type" : "AWS::EC2::EIP",
+      "Properties" : {
+        "Domain" : "VPC",
+        "InstanceId" : { "Ref" : "PukiWikiEC2Server" }
+      }
+    },
+    "PukiWikiSSHSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC" },
+        "GroupDescription" : "Security Group Rule of PukiWiki Access.",
+        "SecurityGroupIngress" : [
+          { "IpProtocol" : "tcp", "FromPort" : "22", "ToPort" : "22", "CidrIp" : "0.0.0.0/0" }
+        ]
+      }
+    },
+    "PukiWikiWebSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC" },
+        "GroupDescription" : "Security Group Rule of PukiWiki Access.",
+        "SecurityGroupIngress" : [
+          { "IpProtocol" : "tcp", "FromPort" : "80", "ToPort" : "80", "CidrIp" : "0.0.0.0/0" },
+          { "IpProtocol" : "tcp", "FromPort" : "443", "ToPort" : "443", "CidrIp" : "0.0.0.0/0" }
+        ]
+      }
+    },
+    
+	"PukiWikiServerWaitHandle" : {
+	  "Type" : "AWS::CloudFormation::WaitConditionHandle",
+      "Properties" : {}
+	},
+	"PukiWikiServerWaitCondition" : {
+	  "Type" : "AWS::CloudFormation::WaitCondition",
+	  "DependsOn" : "PukiWikiEC2Server",
+	  "Properties" : {
+	    "Handle" : {"Ref" : "PukiWikiServerWaitHandle"},
+	    "Timeout" : "600"
+	  }
+	}
+
+
+
+  },
+  
+  
+  "Outputs" : {
+    "VPC" : {
+      "Description" : "VPC ID",
+      "Value" :  { "Ref" : "VPC" }
+    },
+    "InternetGateway" : {
+      "Description" : "InternetGateway ID",
+      "Value" :  { "Ref" : "InternetGateway" }
+    },
+    "PukiWikiURL" : {
+      "Description" : "Access URL.",
+      "Value" :  { "Fn::Join" : ["",[ 
+        "http://", { "Ref" : "PukiWikiEC2ServerEIP"}, "/pukiwiki/" 
+      ]] }
+    }
+  }
+
+}

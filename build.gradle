@@ -9,7 +9,7 @@ buildscript {
 }
 
 ext {
-	artifactId = 'cfnbase'
+	artifactId = 'pukiwiki'
 	templateBucket = 'cm-public-cfn-templates'
 }
 
