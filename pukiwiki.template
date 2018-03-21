@@ -157,9 +157,9 @@
           "chkconfig httpd on\n",
           "yum -y install php php-mbstring php-mysql\n",
           "cd /var/www/html\n",
-          "wget https://s3-ap-northeast-1.amazonaws.com/cfn-archive/pukiwiki-1.4.7_notb_utf8.tar.gz\n",
-          "tar xvf pukiwiki-1.4.7_notb_utf8.tar.gz\n",
-          "mv pukiwiki-1.4.7_notb_utf8 pukiwiki\n",
+          "wget http://iij.dl.osdn.jp/pukiwiki/64807/pukiwiki-1.5.1_utf8.zip\n",
+          "unzip pukiwiki-1.5.1_utf8.zip\n",
+          "mv pukiwiki-1.5.1_utf8 pukiwiki\n",
           "chown nobody.nobody pukiwiki\n",
           "service httpd restart\n",
           
